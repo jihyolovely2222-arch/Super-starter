@@ -6,6 +6,7 @@ import {
   deleteSeasonDoc,
   validateFirestoreConnection
 } from './firebase';
+import { loadSeasons, saveSeasons, resetToDefault } from './utils/storage';
 import { INITIAL_SEASONS } from './data/defaultData';
 import { Navbar } from './components/Navbar';
 import { SeasonBanner } from './components/SeasonBanner';
@@ -16,13 +17,17 @@ import { MemberModal } from './components/MemberModal';
 import { SeasonModal } from './components/SeasonModal';
 import { MemberDetailModal } from './components/MemberDetailModal';
 import { ExportImportModal } from './components/ExportImportModal';
-import { FolderOpen, Plus, Cloud, CloudCheck } from 'lucide-react';
+import { FolderOpen, Plus, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
-  const [seasons, setSeasons] = useState<Season[]>(INITIAL_SEASONS);
-  const [activeSeasonId, setActiveSeasonId] = useState<string>('s1');
+  const [seasons, setSeasons] = useState<Season[]>(() => loadSeasons());
+  const [activeSeasonId, setActiveSeasonId] = useState<string>(() => {
+    const loaded = loadSeasons();
+    return loaded[0]?.id || 's1';
+  });
   const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [searchQuery, setSearchQuery] = useState('');
@@ -39,6 +44,13 @@ export default function App() {
   const [detailMember, setDetailMember] = useState<Member | null>(null);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 2800);
+  };
+
   // Connect to Firestore on mount
   useEffect(() => {
     validateFirestoreConnection().then((connected) => {
@@ -50,6 +62,7 @@ export default function App() {
         setIsLoading(false);
         if (firestoreSeasons.length > 0) {
           setSeasons(firestoreSeasons);
+          saveSeasons(firestoreSeasons);
           setActiveSeasonId((prev) => {
             const exists = firestoreSeasons.some((s) => s.id === prev);
             return exists ? prev : firestoreSeasons[0].id;
@@ -129,6 +142,12 @@ export default function App() {
       return;
     }
     if (confirm('คุณแน่ใจหรือไม่ว่าต้องการลบซีซันนี้ พร้อมรายชื่อสมาชิกทั้งหมด?')) {
+      const updated = seasons.filter((s) => s.id !== seasonId);
+      setSeasons(updated);
+      saveSeasons(updated);
+      setActiveSeasonId(updated[0].id);
+      showToast('ลบซีซันเรียบร้อยแล้ว');
+
       try {
         await deleteSeasonDoc(seasonId);
       } catch (e) {
@@ -138,14 +157,17 @@ export default function App() {
   };
 
   const handleSaveSeason = async (seasonData: Partial<Season>, editId?: string) => {
+    let updatedSeason: Season;
+    let nextSeasons: Season[];
+
     if (editId) {
       const target = seasons.find((s) => s.id === editId);
-      if (target) {
-        const updated: Season = { ...target, ...seasonData };
-        await saveSeasonDoc(updated);
-      }
+      if (!target) return;
+      updatedSeason = { ...target, ...seasonData };
+      nextSeasons = seasons.map((s) => (s.id === editId ? updatedSeason : s));
+      showToast(`บันทึกข้อมูล ${updatedSeason.groupName} เรียบร้อยแล้ว`);
     } else {
-      const newSeason: Season = {
+      updatedSeason = {
         id: 's_' + Date.now(),
         seasonNumber: seasons.length + 1,
         seasonName: seasonData.seasonName || `Season ${seasons.length + 1}`,
@@ -154,8 +176,20 @@ export default function App() {
         fandomName: seasonData.fandomName,
         members: [],
       };
-      await saveSeasonDoc(newSeason);
-      setActiveSeasonId(newSeason.id);
+      nextSeasons = [...seasons, updatedSeason];
+      setActiveSeasonId(updatedSeason.id);
+      showToast(`สร้างซีซัน ${updatedSeason.seasonName} เรียบร้อยแล้ว`);
+    }
+
+    // Update React state and localStorage immediately
+    setSeasons(nextSeasons);
+    saveSeasons(nextSeasons);
+
+    // Sync to Firestore
+    try {
+      await saveSeasonDoc(updatedSeason);
+    } catch (e) {
+      console.error('Firestore save season error:', e);
     }
   };
 
@@ -177,9 +211,25 @@ export default function App() {
         ...activeSeason,
         members: activeSeason.members.filter((m) => m.id !== memberId),
       };
-      await saveSeasonDoc(updatedSeason);
+
+      const nextSeasons = seasons.map((s) =>
+        s.id === updatedSeason.id ? updatedSeason : s
+      );
+
+      // Instant optimistic UI update
+      setSeasons(nextSeasons);
+      saveSeasons(nextSeasons);
+      showToast('ลบสมาชิกออกจากทำเนียบแล้ว');
+
       if (detailMember?.id === memberId) {
         setDetailMember(null);
+      }
+
+      // Sync to Firestore
+      try {
+        await saveSeasonDoc(updatedSeason);
+      } catch (e) {
+        console.error('Firestore delete member error:', e);
       }
     }
   };
@@ -192,12 +242,14 @@ export default function App() {
       updatedMembers = activeSeason.members.map((m) =>
         m.id === editId ? { ...memberData, id: editId } : m
       );
+      showToast(`อัปเดตข้อมูล ${memberData.nameTh} (${memberData.nickname}) สำเร็จ`);
     } else {
       const newMember: Member = {
         ...memberData,
         id: 'm_' + Date.now(),
       };
       updatedMembers = [...activeSeason.members, newMember];
+      showToast(`เพิ่มสมาชิก ${memberData.nameTh} สำเร็จ`);
     }
 
     const updatedSeason: Season = {
@@ -205,27 +257,69 @@ export default function App() {
       members: updatedMembers,
     };
 
-    await saveSeasonDoc(updatedSeason);
+    const nextSeasons = seasons.map((s) =>
+      s.id === updatedSeason.id ? updatedSeason : s
+    );
+
+    // 1. Instant optimistic update in React state + LocalStorage
+    setSeasons(nextSeasons);
+    saveSeasons(nextSeasons);
+
+    // If detail modal is open for this member, update it too
+    if (editId && detailMember?.id === editId) {
+      setDetailMember({ ...memberData, id: editId });
+    }
+
+    // 2. Sync to Firestore in background
+    try {
+      await saveSeasonDoc(updatedSeason);
+    } catch (e) {
+      console.error('Firestore save member error:', e);
+    }
   };
 
   const handleResetData = async () => {
-    for (const s of INITIAL_SEASONS) {
-      await saveSeasonDoc(s);
-    }
-    setActiveSeasonId(INITIAL_SEASONS[0].id);
+    const defaultSeasons = resetToDefault();
+    setSeasons(defaultSeasons);
+    setActiveSeasonId(defaultSeasons[0].id);
     setSelectedCountry('');
     setSearchQuery('');
+    showToast('รีเซ็ตข้อมูลกลับสู่ค่าเริ่มต้นแล้ว');
+
+    for (const s of defaultSeasons) {
+      try {
+        await saveSeasonDoc(s);
+      } catch (e) {
+        console.error('Error syncing reset data to Firestore:', e);
+      }
+    }
   };
 
   const handleImportSeasons = async (imported: Season[]) => {
-    for (const s of imported) {
-      await saveSeasonDoc(s);
-    }
+    setSeasons(imported);
+    saveSeasons(imported);
     setActiveSeasonId(imported[0].id);
+    showToast('นำเข้าข้อมูลสำเร็จแล้ว');
+
+    for (const s of imported) {
+      try {
+        await saveSeasonDoc(s);
+      } catch (e) {
+        console.error('Error syncing imported data to Firestore:', e);
+      }
+    }
   };
 
   return (
-    <div className="min-h-screen academy-gradient text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen academy-gradient text-slate-100 flex flex-col font-sans relative">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-slate-900 border border-emerald-500/50 text-emerald-300 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-md animate-fade-in text-sm font-medium">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Navigation Header */}
       <Navbar
         viewMode={viewMode}

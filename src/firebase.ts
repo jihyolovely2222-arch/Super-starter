@@ -91,7 +91,8 @@ export function subscribeToSeasons(
         // If Firestore is completely empty on first launch, seed default demo seasons!
         try {
           for (const s of INITIAL_SEASONS) {
-            await setDoc(doc(db, SEASONS_COLLECTION, s.id), s);
+            const sanitized = JSON.parse(JSON.stringify(s));
+            await setDoc(doc(db, SEASONS_COLLECTION, s.id), sanitized);
           }
         } catch (e) {
           console.error('Failed to seed initial seasons', e);
@@ -122,8 +123,10 @@ export function subscribeToSeasons(
  */
 export async function saveSeasonDoc(season: Season): Promise<void> {
   const path = `${SEASONS_COLLECTION}/${season.id}`;
+  // Strip any undefined values which cause Firestore setDoc() to fail
+  const sanitized = JSON.parse(JSON.stringify(season));
   try {
-    await setDoc(doc(db, SEASONS_COLLECTION, season.id), season);
+    await setDoc(doc(db, SEASONS_COLLECTION, season.id), sanitized);
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
