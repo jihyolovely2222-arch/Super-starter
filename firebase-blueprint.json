@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "Member": {
+      "title": "Member",
+      "description": "Idol survival show debut member profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "rank": { "type": "number" },
+        "nameTh": { "type": "string" },
+        "nameEn": { "type": "string" },
+        "nickname": { "type": "string" },
+        "country": { "type": "string" },
+        "role": { "type": "string" },
+        "finalVotes": { "type": "number" },
+        "mbti": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "rank", "nameTh", "nickname", "country", "role"]
+    },
+    "Season": {
+      "title": "Season",
+      "description": "Seishun Academy seasonal debut group archive",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "seasonNumber": { "type": "number" },
+        "seasonName": { "type": "string" },
+        "groupName": { "type": "string" },
+        "groupType": { "type": "string" },
+        "fandomName": { "type": "string" },
+        "members": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "seasonNumber", "seasonName", "groupName", "members"]
+    }
+  },
+  "firestore": {
+    "/seasons/{seasonId}": {
+      "schema": "Season",
+      "description": "Collection of Seishun Academy seasons and member rosters"
+    }
+  }
+}

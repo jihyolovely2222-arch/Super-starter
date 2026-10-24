@@ -1,0 +1,6 @@
+{
+  "name": "SEISHUN ACADEMY - Hall of Fame & Debut Archive",
+  "description": "Official Hall of Fame and Debut Archive for Seishun Academy idol survival groups, member profiles, and seasonal rosters.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

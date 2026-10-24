@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidSeason(data) {
+      return data.keys().hasAll(['id', 'seasonNumber', 'seasonName', 'groupName', 'members']) &&
+        data.id is string && data.id.size() <= 64 &&
+        data.seasonNumber is number &&
+        data.seasonName is string && data.seasonName.size() <= 100 &&
+        data.groupName is string && data.groupName.size() <= 100 &&
+        data.members is list && data.members.size() <= 100;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Seasons & Rosters collection
+    match /seasons/{seasonId} {
+      allow read: if true;
+      allow create, update: if isValidId(seasonId) && isValidSeason(request.resource.data);
+      allow delete: if isValidId(seasonId);
+    }
+  }
+}
